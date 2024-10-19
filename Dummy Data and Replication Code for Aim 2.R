@@ -392,6 +392,23 @@ bic_all <- bic_all %>% add_row(approach="quartile", bic=BIC(model))
 ve_all <- ve_all %>% 
 	bind_rows(results(model, model_contrast) %>% mutate(approach = "quartile"))
 
+##### Sensitivity Analysis | Restricting to Countries with Country-Specific Median Age at Hospitalization #####
+include_me <- c("France", "Hong Kong", "Japan", "Taiwan", "Chile", "China", "Venezuela", "South Africa", "Malawi")
+model_contrast <- 
+  proxy_countries %>% 
+  filter(country %in% include_me) %>%
+  select(country, ageHosp) %>% 
+  mutate(int=0, vax=1, proxy=0) %>% 
+  column_to_rownames("country") %>% 
+  select(int, vax, proxy, ageHosp) %>%
+  as.matrix()
+
+model <- glm(severe ~ arm + ageHosp + arm*ageHosp + offset(log(timeVE)), 
+             data = pooled_all %>% filter(country %in% include_me), family = "poisson")
+bic_all <- bic_all %>% add_row(approach="ageHospSpec", bic=BIC(model))
+ve_all <- ve_all %>% 
+  bind_rows(results(model, model_contrast) %>% mutate(approach = "ageHospSpec"))
+
 ##### Sensitivity Analysis | Stratified Analysis by Country #####
 # all pooled data
 for (i in 1:nrow(proxy_countries)) {
@@ -555,8 +572,16 @@ st4 <-
 				 ci = paste0("(", sprintf("%1.0f", ll), ",", sprintf("%1.0f", ul), ")")) %>% 
 	select(country, approach, ve, ci)
 
-# VE against severe RVGE when using the any-severity data subset
+# VE against severe RVGE using only countries with country-specific median age at hospitalization
 st5 <- 
+  ve_all %>% 
+  filter(approach == "ageHospSpec") %>% 
+  mutate(ve = sprintf("%1.0f", ve), 
+         ci = paste0("(", sprintf("%1.0f", ll), ",", sprintf("%1.0f", ul), ")")) %>% 
+  select(country, approach, ve, ci)
+
+# VE against severe RVGE when using the any-severity data subset
+st6 <- 
 	ve_any %>% 
 	filter(approach %in% c("standard", "rateAny", "rateSev", "ageSev", "ageHosp"), outcome=="severe") %>% 
 	mutate(ve = sprintf("%1.0f", ve), 
@@ -567,14 +592,14 @@ st5 <-
 bic_any %>% filter(approach %in% c("standard", "rateAny", "rateSev", "ageSev", "ageHosp"), severity=="severe")
 
 # VE from stratified models
-st6 <- full_join(
+st7 <- full_join(
 	ve_any %>% filter(approach=="stratified") %>% mutate(ve = sprintf("%1.0f", ve), ci = paste0("(", sprintf("%1.0f", ll), ",", sprintf("%1.0f", ul), ")")) %>% select(country, outcome, ve, ci) %>% pivot_wider(id_cols="country", names_from="outcome", values_from=c("ve","ci"), names_vary="slowest"), 
 	ve_all %>% filter(approach=="stratified") %>% mutate(ve = sprintf("%1.0f", ve), ci = paste0("(", sprintf("%1.0f", ll), ",", sprintf("%1.0f", ul), ")")) %>% select(country, ve, ci), 
 	by="country") %>% 
 	arrange(country)
 
 # Comparing weighted and unweighted VE estimates for VE against any-severity RVGE
-st7 <- 
+st8 <- 
 	ve_any %>% 
 	filter(approach %in% c("standard", "rateAny", "rateSev", "ageSev", "ageHosp"), outcome=="any") %>% 
 	mutate(change = veWeighted - ve) %>% 
@@ -584,7 +609,7 @@ st7 <-
 	pivot_wider(names_from = "approach", values_from = c("veWeighted", "change"), names_vary="slowest")
 
 # now for VE against severe RVGE
-st8 <- 
+st9 <- 
 	ve_all %>% 
 	filter(approach %in% c("standard", "rateSev", "ageSev", "ageHosp")) %>% 
 	mutate(change = veWeighted - ve) %>% 
